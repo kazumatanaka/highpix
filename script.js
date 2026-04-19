@@ -88,8 +88,8 @@ async function loadLibraries() {
         try {
             // Using esm.sh for robust dependency management
             const [bgMod, upscaleMod] = await Promise.all([
-                import('https://esm.sh/@imgly/background-removal@1.4.5'),
-                import('https://esm.sh/upscaler@1.0.0-beta.33')
+                import('https://esm.sh/@imgly/background-removal@1.7.0'),
+                import('https://esm.sh/upscaler@1.0.0-beta.19')
             ]);
             removeBackgroundFn = bgMod.removeBackground;
             UpscalerClass = upscaleMod.default;
