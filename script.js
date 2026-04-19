@@ -160,7 +160,7 @@ async function processUpscale() {
     if (!upscaler) {
         upscaler = new UpscalerClass({
           model: {
-            path: 'https://cdn.jsdelivr.net/npm/@upscalerjs/esrgan-slim@1.0.0-beta.7/models/model.json',
+            path: 'https://cdn.jsdelivr.net/npm/@upscalerjs/esrgan-slim@1.0.0-beta.15/2x/model.json',
             scale: 2,
           }
         });
