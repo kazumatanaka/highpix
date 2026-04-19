@@ -1,7 +1,7 @@
 // AI Libraries (Switching to esm.sh for better dependency resolution)
 let removeBackgroundFn = null;
 let UpscalerClass = null;
-
+let EsrganSlimModel = null;
 // Initialize Lucide Icons
 if (window.lucide) {
     window.lucide.createIcons();
@@ -83,16 +83,18 @@ function handleFile(file) {
 // --- Heavy AI Processing ---
 
 async function loadLibraries() {
-    if (!removeBackgroundFn || !UpscalerClass) {
+    if (!removeBackgroundFn || !UpscalerClass || !EsrganSlimModel) {
         progressText.innerText = 'AIエンジンの準備中... (初回のみ10秒程度)';
         try {
             // Using esm.sh for robust dependency management
-            const [bgMod, upscaleMod] = await Promise.all([
+            const [bgMod, upscaleMod, esrganMod] = await Promise.all([
                 import('https://esm.sh/@imgly/background-removal@1.7.0'),
-                import('https://esm.sh/upscaler@1.0.0-beta.19')
+                import('https://esm.sh/upscaler@1.0.0-beta.19'),
+                import('https://esm.sh/@upscalerjs/esrgan-slim@1.0.0-beta.12/2x')
             ]);
             removeBackgroundFn = bgMod.removeBackground;
             UpscalerClass = upscaleMod.default;
+            EsrganSlimModel = esrganMod.default;
         } catch (err) {
             console.error('Library load error:', err);
             throw new Error('AIライブラリの読み込みに失敗しました。ネットワーク状態を確認してリロードしてください。');
@@ -159,10 +161,7 @@ async function processUpscale() {
     
     if (!upscaler) {
         upscaler = new UpscalerClass({
-          model: {
-            path: 'https://cdn.jsdelivr.net/npm/@upscalerjs/esrgan-slim@1.0.0-beta.15/2x/model.json',
-            scale: 2,
-          }
+          model: EsrganSlimModel
         });
     }
 
@@ -207,10 +206,7 @@ async function processBoth() {
     
     if (!upscaler) {
         upscaler = new UpscalerClass({
-          model: {
-            path: 'https://cdn.jsdelivr.net/npm/@upscalerjs/esrgan-slim@1.0.0-beta.15/2x/model.json',
-            scale: 2,
-          }
+          model: EsrganSlimModel
         });
     }
 
