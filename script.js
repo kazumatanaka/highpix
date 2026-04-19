@@ -1,9 +1,11 @@
-// Import Libraries
-import { removeBackground } from 'https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.4.5/+esm';
-import Upscaler from 'https://cdn.jsdelivr.net/npm/upscaler@1.0.0-beta.33/+esm';
+// AI Libraries (Dynamic Imports)
+let removeBackgroundFn = null;
+let UpscalerClass = null;
 
-// Initialize Lucide Icons
-lucide.createIcons();
+// Initialize Lucide Icons (from global script in index.html)
+if (window.lucide) {
+    window.lucide.createIcons();
+}
 
 // DOM Elements
 const dropzone = document.getElementById('dropzone');
@@ -27,8 +29,11 @@ let processedBlob = null;
 let isProcessing = false;
 let upscaler = null;
 
-// Handle Select Button
-selectBtn.addEventListener('click', () => fileInput.click());
+// --- UI Interaction (These will work immediately) ---
+
+selectBtn.addEventListener('click', () => {
+    fileInput.click();
+});
 
 fileInput.addEventListener('change', (e) => {
     if (e.target.files.length > 0) {
@@ -75,19 +80,34 @@ function handleFile(file) {
     reader.readAsDataURL(file);
 }
 
+// --- Heavy AI Processing (Loaded when needed) ---
+
+async function loadLibraries() {
+    if (!removeBackgroundFn || !UpscalerClass) {
+        progressText.innerText = 'AIエンジンの準備中... (初回のみ10秒程度)';
+        const [bgMod, upscaleMod] = await Promise.all([
+            import('https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.4.5/+esm'),
+            import('https://cdn.jsdelivr.net/npm/upscaler@1.0.0-beta.33/+esm')
+        ]);
+        removeBackgroundFn = bgMod.removeBackground;
+        UpscalerClass = upscaleMod.default;
+    }
+}
+
 // Menu Actions
 menuBtns.forEach(btn => {
     btn.addEventListener('click', async () => {
         if (isProcessing) return;
         const mode = btn.getAttribute('data-mode');
         
-        // UI State
         menuBtns.forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         
         startProcessing(mode);
         
         try {
+            await loadLibraries();
+            
             if (mode === 'upscale') {
                 await processUpscale();
             } else if (mode === 'remove-bg') {
@@ -128,12 +148,11 @@ function finishProcessing() {
     downloadBtn.disabled = false;
 }
 
-// Processing Logic: Upscale
 async function processUpscale() {
     progressText.innerText = 'Upscaling (2x)...';
     
     if (!upscaler) {
-        upscaler = new Upscaler({
+        upscaler = new UpscalerClass({
           model: {
             path: 'https://cdn.jsdelivr.net/npm/@upscalerjs/esrgan-slim@1.0.0-beta.7/models/model.json',
             scale: 2,
@@ -153,41 +172,35 @@ async function processUpscale() {
     processedBlob = await (await fetch(upscaledImage)).blob();
 }
 
-// Processing Logic: Background Removal
 async function processRemoveBg() {
     progressText.innerText = 'Removing Background...';
     
-    const config = {
+    const blob = await removeBackgroundFn(originalImageFile, {
       progress: (key, current, total) => {
         const percent = Math.round((current / total) * 100);
         progressText.innerText = `AI Analysis: ${percent}%`;
       }
-    };
-
-    const blob = await removeBackground(originalImageFile, config);
-    const url = URL.createObjectURL(blob);
+    });
     
+    const url = URL.createObjectURL(blob);
     resultPreview.src = url;
     processedBlob = blob;
 }
 
-// Processing Logic: Both
 async function processBoth() {
-    // Stage 1: BG Removal
     progressText.innerText = 'Stage 1: Removing Background...';
-    const bgBlob = await removeBackground(originalImageFile, {
+    const bgBlob = await removeBackgroundFn(originalImageFile, {
         progress: (k, c, t) => {
             const percent = Math.round((c / t) * 100);
             progressText.innerText = `Background: ${percent}%`;
         }
     });
     
-    // Stage 2: Upscale the result
     progressText.innerText = 'Stage 2: Upscaling...';
     const bgUrl = URL.createObjectURL(bgBlob);
     
     if (!upscaler) {
-        upscaler = new Upscaler({
+        upscaler = new UpscalerClass({
           model: {
             path: 'https://cdn.jsdelivr.net/npm/@upscalerjs/esrgan-slim@1.0.0-beta.7/models/model.json',
             scale: 2,
@@ -207,7 +220,6 @@ async function processBoth() {
     processedBlob = await (await fetch(upscaledImage)).blob();
 }
 
-// Download
 downloadBtn.addEventListener('click', () => {
     const link = document.createElement('a');
     link.href = resultPreview.src;
@@ -215,19 +227,15 @@ downloadBtn.addEventListener('click', () => {
     link.click();
 });
 
-// Reset
 resetBtn.addEventListener('click', () => {
     originalImageFile = null;
     processedBlob = null;
     isProcessing = false;
-    
     fileInput.value = '';
     originalPreview.src = '';
     resultPreview.src = '';
-    
     previewState.classList.add('hidden');
     controls.classList.add('hidden');
     emptyState.classList.remove('hidden');
-    
     menuBtns.forEach(b => b.classList.remove('active'));
 });
