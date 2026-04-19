@@ -130,9 +130,16 @@ function finishProcessing() {
 async function processUpscale() {
     progressText.innerText = 'Upscaling (2x)...';
     
+    // Ensure Upscaler is available globally
+    const UpscalerClass = window.Upscaler || (window.Upscaler && window.Upscaler.default);
+    
+    if (!UpscalerClass) {
+        throw new Error('Upscaler library not found. Please refresh or check your connection.');
+    }
+
     // Lazy load Upscaler
     if (!upscaler) {
-        upscaler = new Upscaler({
+        upscaler = new UpscalerClass({
           model: {
             path: 'https://cdn.jsdelivr.net/npm/@upscalerjs/esrgan-slim@1.0.0-beta.7/models/model.json',
             scale: 2,
@@ -156,6 +163,11 @@ async function processUpscale() {
 async function processRemoveBg() {
     progressText.innerText = 'Removing Background...';
     
+    const removeFn = window.imglyRemoveBackground;
+    if (!removeFn) {
+        throw new Error('Background removal library not found.');
+    }
+
     const config = {
       progress: (key, current, total) => {
         const percent = Math.round((current / total) * 100);
@@ -163,7 +175,7 @@ async function processRemoveBg() {
       }
     };
 
-    const blob = await imglyRemoveBackground(originalImageFile, config);
+    const blob = await removeFn(originalImageFile, config);
     const url = URL.createObjectURL(blob);
     
     resultPreview.src = url;
@@ -172,9 +184,16 @@ async function processRemoveBg() {
 
 // Processing Logic: Both
 async function processBoth() {
+    const removeFn = window.imglyRemoveBackground;
+    const UpscalerClass = window.Upscaler || (window.Upscaler && window.Upscaler.default);
+
+    if (!removeFn || !UpscalerClass) {
+        throw new Error('Required libraries not loaded.');
+    }
+
     // Stage 1: BG Removal
     progressText.innerText = 'Stage 1: Removing Background...';
-    const bgBlob = await imglyRemoveBackground(originalImageFile, {
+    const bgBlob = await removeFn(originalImageFile, {
         progress: (k, c, t) => {
             const percent = Math.round((c / t) * 100);
             progressText.innerText = `Background: ${percent}%`;
@@ -186,7 +205,7 @@ async function processBoth() {
     const bgUrl = URL.createObjectURL(bgBlob);
     
     if (!upscaler) {
-        upscaler = new Upscaler({
+        upscaler = new UpscalerClass({
           model: {
             path: 'https://cdn.jsdelivr.net/npm/@upscalerjs/esrgan-slim@1.0.0-beta.7/models/model.json',
             scale: 2,
