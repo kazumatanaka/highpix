@@ -181,7 +181,7 @@ async function processRemoveBg() {
     progressText.innerText = 'Removing Background...';
     
     const blob = await removeBackgroundFn(originalImageFile, {
-      model: 'medium',
+      model: 'isnet',
       progress: (key, current, total) => {
         const percent = Math.round((current / total) * 100);
         progressText.innerText = `AI Analysis: ${percent}%`;
@@ -196,7 +196,7 @@ async function processRemoveBg() {
 async function processBoth() {
     progressText.innerText = 'Stage 1: Removing Background...';
     const bgBlob = await removeBackgroundFn(originalImageFile, {
-        model: 'medium',
+        model: 'isnet',
         progress: (k, c, t) => {
             const percent = Math.round((c / t) * 100);
             progressText.innerText = `Background: ${percent}%`;
