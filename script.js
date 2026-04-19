@@ -1,8 +1,8 @@
-// AI Libraries (Dynamic Imports)
+// AI Libraries (Switching to esm.sh for better dependency resolution)
 let removeBackgroundFn = null;
 let UpscalerClass = null;
 
-// Initialize Lucide Icons (from global script in index.html)
+// Initialize Lucide Icons
 if (window.lucide) {
     window.lucide.createIcons();
 }
@@ -29,7 +29,7 @@ let processedBlob = null;
 let isProcessing = false;
 let upscaler = null;
 
-// --- UI Interaction (These will work immediately) ---
+// --- UI Interaction ---
 
 selectBtn.addEventListener('click', () => {
     fileInput.click();
@@ -80,17 +80,23 @@ function handleFile(file) {
     reader.readAsDataURL(file);
 }
 
-// --- Heavy AI Processing (Loaded when needed) ---
+// --- Heavy AI Processing ---
 
 async function loadLibraries() {
     if (!removeBackgroundFn || !UpscalerClass) {
         progressText.innerText = 'AIエンジンの準備中... (初回のみ10秒程度)';
-        const [bgMod, upscaleMod] = await Promise.all([
-            import('https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.4.5/+esm'),
-            import('https://cdn.jsdelivr.net/npm/upscaler@1.0.0-beta.33/+esm')
-        ]);
-        removeBackgroundFn = bgMod.removeBackground;
-        UpscalerClass = upscaleMod.default;
+        try {
+            // Using esm.sh for robust dependency management
+            const [bgMod, upscaleMod] = await Promise.all([
+                import('https://esm.sh/@imgly/background-removal@1.4.5'),
+                import('https://esm.sh/upscaler@1.0.0-beta.33')
+            ]);
+            removeBackgroundFn = bgMod.removeBackground;
+            UpscalerClass = upscaleMod.default;
+        } catch (err) {
+            console.error('Library load error:', err);
+            throw new Error('AIライブラリの読み込みに失敗しました。ネットワーク状態を確認してリロードしてください。');
+        }
     }
 }
 
