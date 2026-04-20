@@ -101,8 +101,7 @@ async function loadLibraries() {
             env.allowLocalModels = false;
             
             if (!segmenter) {
-                segmenter = await pipeline('image-segmentation', 'briaai/RMBG-1.4', {
-                    revision: 'main',
+                segmenter = await pipeline('image-matting', 'Xenova/modnet', {
                     progress_callback: (info) => {
                         if (info.status === 'progress') {
                             const percent = Math.round((info.loaded / info.total) * 100);
@@ -129,10 +128,20 @@ async function executeBackgroundRemoval(file) {
     
     progressText.innerText = 'AI Analysis: Processing...';
     
-    // Process image with RMBG-1.4 model
+    // Process image with modnet model
     const output = await segmenter(image);
-    const maskObj = output.find(o => o.label === 'foreground') || output[0];
-    const mask = maskObj.mask; // This is a RawImage object
+    
+    let mask = null;
+    if (output && output.data && output.width && output.height) { mask = output; }
+    else if (output.output && output.output.data) { mask = output.output; }
+    else if (output.mask && output.mask.data) { mask = output.mask; }
+    else if (Array.isArray(output) && output[0] && output[0].data) { mask = output[0]; }
+    else if (Array.isArray(output) && output[0].mask && output[0].mask.data) { mask = output[0].mask; }
+    else if (Array.isArray(output) && output[0].output && output[0].output.data) { mask = output[0].output; }
+    
+    if (!mask) {
+        throw new Error("Unable to extract mask from AI output");
+    }
     
     // Load original image to canvas
     const img = new Image();
