@@ -1,7 +1,9 @@
-// AI Libraries (Switching to esm.sh for better dependency resolution)
-let removeBackgroundFn = null;
+// AI Libraries
+let segmenter = null;
 let UpscalerClass = null;
 let EsrganSlimModel = null;
+let RawImageClass = null;
+
 // Initialize Lucide Icons
 if (window.lucide) {
     window.lucide.createIcons();
@@ -83,23 +85,89 @@ function handleFile(file) {
 // --- Heavy AI Processing ---
 
 async function loadLibraries() {
-    if (!removeBackgroundFn || !UpscalerClass || !EsrganSlimModel) {
-        progressText.innerText = 'AIエンジンの準備中... (初回のみ10秒程度)';
+    if (!segmenter || !UpscalerClass || !EsrganSlimModel) {
+        progressText.innerText = 'AIエンジンの準備中... (初回のみDL。約200MB)';
         try {
-            // Using esm.sh for robust dependency management
-            const [bgMod, upscaleMod, esrganMod] = await Promise.all([
-                import('https://esm.sh/@imgly/background-removal@1.7.0'),
+            const [upscaleMod, esrganMod, transformersMod] = await Promise.all([
                 import('https://esm.sh/upscaler@1.0.0-beta.19'),
-                import('https://esm.sh/@upscalerjs/esrgan-slim@1.0.0-beta.12/2x')
+                import('https://esm.sh/@upscalerjs/esrgan-slim@1.0.0-beta.12/2x'),
+                import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/+esm')
             ]);
-            removeBackgroundFn = bgMod.removeBackground;
             UpscalerClass = upscaleMod.default;
             EsrganSlimModel = esrganMod.default;
+            RawImageClass = transformersMod.RawImage;
+            
+            const { pipeline, env } = transformersMod;
+            env.allowLocalModels = false;
+            
+            if (!segmenter) {
+                segmenter = await pipeline('image-segmentation', 'briaai/RMBG-1.4', {
+                    revision: 'main',
+                    progress_callback: (info) => {
+                        if (info.status === 'progress') {
+                            const percent = Math.round((info.loaded / info.total) * 100);
+                            progressText.innerText = `背景除去AI DL中: ${percent}%`;
+                        } else if (info.status === 'downloading') {
+                            progressText.innerText = `モデルのダウンロード中: ${info.file}`;
+                        } else if (info.status === 'init' || info.status === 'ready') {
+                            progressText.innerText = 'AIエンジンを初期化中...';
+                        }
+                    }
+                });
+            }
         } catch (err) {
             console.error('Library load error:', err);
-            throw new Error('AIライブラリの読み込みに失敗しました。ネットワーク状態を確認してリロードしてください。');
+            throw new Error('AIライブラリの読み込みに失敗しました。');
         }
     }
+}
+
+async function executeBackgroundRemoval(file) {
+    const url = URL.createObjectURL(file);
+    const image = await RawImageClass.fromURL(url);
+    
+    progressText.innerText = 'AI Analysis: Processing...';
+    
+    // Process image with RMBG-1.4 model
+    const output = await segmenter(image);
+    const maskObj = output.find(o => o.label === 'foreground') || output[0];
+    const mask = maskObj.mask; // This is a RawImage object
+    
+    // Load original image to canvas
+    const img = new Image();
+    img.src = url;
+    await new Promise(r => img.onload = r);
+    
+    const canvas = document.createElement('canvas');
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext('2d');
+    
+    ctx.drawImage(img, 0, 0);
+    ctx.globalCompositeOperation = 'destination-in';
+    
+    // Convert mask Array into Canvas ImageData
+    const maskCanvas = document.createElement('canvas');
+    maskCanvas.width = mask.width;
+    maskCanvas.height = mask.height;
+    const maskCtx = maskCanvas.getContext('2d');
+    const imageData = maskCtx.createImageData(mask.width, mask.height);
+    
+    const isFloat = mask.data instanceof Float32Array;
+    for (let i = 0; i < mask.data.length; i++) {
+        const val = isFloat ? Math.round(mask.data[i] * 255) : mask.data[i];
+        const offset = i * 4;
+        imageData.data[offset] = 0;     // R
+        imageData.data[offset + 1] = 0; // G
+        imageData.data[offset + 2] = 0; // B
+        imageData.data[offset + 3] = val; // A (Transparency is based on AI mask output)
+    }
+    maskCtx.putImageData(imageData, 0, 0);
+    
+    // Draw mask over original image
+    ctx.drawImage(maskCanvas, 0, 0, mask.width, mask.height, 0, 0, canvas.width, canvas.height);
+    
+    return new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
 }
 
 // Menu Actions
@@ -156,6 +224,7 @@ function finishProcessing() {
     downloadBtn.disabled = false;
 }
 
+// Processing Logic: Upscale
 async function processUpscale() {
     progressText.innerText = 'Upscaling (2x)...';
     
@@ -177,31 +246,19 @@ async function processUpscale() {
     processedBlob = await (await fetch(upscaledImage)).blob();
 }
 
+// Processing Logic: Background Removal
 async function processRemoveBg() {
     progressText.innerText = 'Removing Background...';
-    
-    const blob = await removeBackgroundFn(originalImageFile, {
-      model: 'isnet',
-      progress: (key, current, total) => {
-        const percent = Math.round((current / total) * 100);
-        progressText.innerText = `AI Analysis: ${percent}%`;
-      }
-    });
-    
+    const blob = await executeBackgroundRemoval(originalImageFile);
     const url = URL.createObjectURL(blob);
     resultPreview.src = url;
     processedBlob = blob;
 }
 
+// Processing Logic: Both
 async function processBoth() {
     progressText.innerText = 'Stage 1: Removing Background...';
-    const bgBlob = await removeBackgroundFn(originalImageFile, {
-        model: 'isnet',
-        progress: (k, c, t) => {
-            const percent = Math.round((c / t) * 100);
-            progressText.innerText = `Background: ${percent}%`;
-        }
-    });
+    const bgBlob = await executeBackgroundRemoval(originalImageFile);
     
     progressText.innerText = 'Stage 2: Upscaling...';
     const bgUrl = URL.createObjectURL(bgBlob);
@@ -224,6 +281,7 @@ async function processBoth() {
     processedBlob = await (await fetch(upscaledImage)).blob();
 }
 
+// Download
 downloadBtn.addEventListener('click', () => {
     const link = document.createElement('a');
     link.href = resultPreview.src;
@@ -231,15 +289,19 @@ downloadBtn.addEventListener('click', () => {
     link.click();
 });
 
+// Reset
 resetBtn.addEventListener('click', () => {
     originalImageFile = null;
     processedBlob = null;
     isProcessing = false;
+    
     fileInput.value = '';
     originalPreview.src = '';
     resultPreview.src = '';
+    
     previewState.classList.add('hidden');
     controls.classList.add('hidden');
     emptyState.classList.remove('hidden');
+    
     menuBtns.forEach(b => b.classList.remove('active'));
 });
