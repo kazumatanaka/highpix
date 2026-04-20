@@ -137,7 +137,7 @@ async function executeBackgroundRemoval(file) {
     
     // Process image with RMBG-1.4 model
     const inputs = await aiProcessor(image);
-    const result = await aiModel(inputs);
+    const result = await aiModel({ input: inputs.pixel_values || Object.values(inputs)[0] });
     
     // The output is a dictionary of tensors. Get the first one (the mask).
     const keys = Object.keys(result);
