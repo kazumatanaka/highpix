@@ -101,7 +101,7 @@ async function loadLibraries() {
             env.allowLocalModels = false;
             
             if (!segmenter) {
-                segmenter = await pipeline('background-removal', 'briaai/RMBG-1.4', {
+                segmenter = await pipeline('background-removal', 'Xenova/modnet', {
                     progress_callback: (info) => {
                         if (info.status === 'progress') {
                             const percent = Math.round((info.loaded / info.total) * 100);
