@@ -117,7 +117,8 @@ async function loadLibraries() {
             }
         } catch (err) {
             console.error('Library load error:', err);
-            throw new Error('AIライブラリの読み込みに失敗しました。');
+            const detailedMsg = err.message ? err.message : String(err);
+            throw new Error(`AIライブラリの読み込みに失敗しました。\n詳細: ${detailedMsg}`);
         }
     }
 }
