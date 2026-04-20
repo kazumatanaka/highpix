@@ -101,7 +101,7 @@ async function loadLibraries() {
             env.allowLocalModels = false;
             
             if (!segmenter) {
-                segmenter = await pipeline('image-matting', 'Xenova/modnet', {
+                segmenter = await pipeline('background-removal', 'briaai/RMBG-1.4', {
                     progress_callback: (info) => {
                         if (info.status === 'progress') {
                             const percent = Math.round((info.loaded / info.total) * 100);
@@ -164,13 +164,28 @@ async function executeBackgroundRemoval(file) {
     const imageData = maskCtx.createImageData(mask.width, mask.height);
     
     const isFloat = mask.data instanceof Float32Array;
-    for (let i = 0; i < mask.data.length; i++) {
-        const val = isFloat ? Math.round(mask.data[i] * 255) : mask.data[i];
+    const numPixels = mask.width * mask.height;
+    
+    // Some pipelines return RGBA or Grayscale. Dynamically detect channels.
+    const channels = mask.channels ? mask.channels : (mask.data.length / numPixels);
+    
+    for (let i = 0; i < numPixels; i++) {
+        let val;
+        if (channels === 1) {
+            val = mask.data[i];
+        } else if (channels === 4) {
+            val = mask.data[i * 4 + 3]; // use alpha channel
+        } else {
+            val = mask.data[i * channels]; // fallback to first channel
+        }
+        
+        if (isFloat) val = Math.round(val * 255);
+        
         const offset = i * 4;
         imageData.data[offset] = 0;     // R
         imageData.data[offset + 1] = 0; // G
         imageData.data[offset + 2] = 0; // B
-        imageData.data[offset + 3] = val; // A (Transparency is based on AI mask output)
+        imageData.data[offset + 3] = val; // A
     }
     maskCtx.putImageData(imageData, 0, 0);
     
