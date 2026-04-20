@@ -91,7 +91,7 @@ async function loadLibraries() {
             const [upscaleMod, esrganMod, transformersMod] = await Promise.all([
                 import('https://esm.sh/upscaler@1.0.0-beta.19'),
                 import('https://esm.sh/@upscalerjs/esrgan-slim@1.0.0-beta.12/2x'),
-                import('https://esm.sh/@xenova/transformers@2.17.2')
+                import('https://esm.sh/@huggingface/transformers')
             ]);
             UpscalerClass = upscaleMod.default;
             EsrganSlimModel = esrganMod.default;
