@@ -1,5 +1,6 @@
 // AI Libraries
-let segmenter = null;
+let aiModel = null;
+let aiProcessor = null;
 let UpscalerClass = null;
 let EsrganSlimModel = null;
 let RawImageClass = null;
@@ -85,7 +86,7 @@ function handleFile(file) {
 // --- Heavy AI Processing ---
 
 async function loadLibraries() {
-    if (!segmenter || !UpscalerClass || !EsrganSlimModel) {
+    if (!aiProcessor || !aiModel || !UpscalerClass || !EsrganSlimModel) {
         progressText.innerText = 'AIエンジンの準備中... (初回のみDL。約200MB)';
         try {
             const [upscaleMod, esrganMod, transformersMod] = await Promise.all([
@@ -97,11 +98,17 @@ async function loadLibraries() {
             EsrganSlimModel = esrganMod.default;
             RawImageClass = transformersMod.RawImage;
             
-            const { pipeline, env } = transformersMod;
+            const { AutoModel, AutoProcessor, env } = transformersMod;
             env.allowLocalModels = false;
             
-            if (!segmenter) {
-                segmenter = await pipeline('background-removal', 'Xenova/modnet', {
+            if (!aiProcessor) {
+                progressText.innerText = `プロセッサ準備中...`;
+                aiProcessor = await AutoProcessor.from_pretrained('briaai/RMBG-1.4');
+            }
+            if (!aiModel) {
+                progressText.innerText = `モデルのダウンロード中...`;
+                aiModel = await AutoModel.from_pretrained('briaai/RMBG-1.4', {
+                    config: { model_type: 'custom' },
                     progress_callback: (info) => {
                         if (info.status === 'progress') {
                             const percent = Math.round((info.loaded / info.total) * 100);
@@ -128,55 +135,54 @@ async function executeBackgroundRemoval(file) {
     
     progressText.innerText = 'AI Analysis: Processing...';
     
-    // Process image with modnet model
-    const output = await segmenter(image);
+    // Process image with RMBG-1.4 model
+    const inputs = await aiProcessor(image);
+    const result = await aiModel(inputs);
     
-    let resultImage = Array.isArray(output) ? output[0] : output;
-    if (resultImage && resultImage.mask) {
-        resultImage = resultImage.mask;
+    // The output is a dictionary of tensors. Get the first one (the mask).
+    const keys = Object.keys(result);
+    if (!keys.length) throw new Error("AI returned empty result");
+    const tensor = result[keys[0]];
+    
+    const dims = tensor.dims;
+    const tWidth = dims[dims.length - 1];
+    const tHeight = dims[dims.length - 2];
+    const floatData = tensor.data;
+    
+    // Create an ImageData for the mask
+    const maskImageData = new ImageData(tWidth, tHeight);
+    for (let i = 0; i < tWidth * tHeight; i++) {
+        // Tensor outputs probabilities 0.0 to 1.0 (sometimes slightly out of bounds).
+        // For RMBG, it's a direct probability map.
+        let alpha = Math.round(floatData[i] * 255);
+        if (alpha < 0) alpha = 0;
+        if (alpha > 255) alpha = 255;
+        
+        const offset = i * 4;
+        maskImageData.data[offset] = 0;     // R
+        maskImageData.data[offset + 1] = 0; // G
+        maskImageData.data[offset + 2] = 0; // B
+        maskImageData.data[offset + 3] = alpha; // A
     }
     
-    if (!resultImage || !resultImage.data) {
-        throw new Error("Unable to extract output from AI model");
-    }
+    const maskCanvas = document.createElement('canvas');
+    maskCanvas.width = tWidth;
+    maskCanvas.height = tHeight;
+    maskCanvas.getContext('2d').putImageData(maskImageData, 0, 0);
     
+    // Native output composition
     const canvas = document.createElement('canvas');
-    canvas.width = resultImage.width;
-    canvas.height = resultImage.height;
+    canvas.width = image.width; // Original width
+    canvas.height = image.height; // Original height
     const ctx = canvas.getContext('2d');
     
-    const channels = resultImage.channels ? resultImage.channels : (resultImage.data.length / (resultImage.width * resultImage.height));
+    const imgElement = new Image();
+    imgElement.src = url;
+    await new Promise(r => imgElement.onload = r);
+    ctx.drawImage(imgElement, 0, 0);
     
-    if (channels === 4) {
-        // Native background-removal output is already a fully transparent RGBA cutout.
-        const imageData = new ImageData(
-            new Uint8ClampedArray(resultImage.data),
-            resultImage.width,
-            resultImage.height
-        );
-        ctx.putImageData(imageData, 0, 0);
-    } else {
-        // Fallback for 1-channel mask output
-        const img = new Image();
-        img.src = url;
-        await new Promise(r => img.onload = r);
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        
-        const maskData = new ImageData(canvas.width, canvas.height);
-        const isFloat = resultImage.data instanceof Float32Array;
-        for (let i = 0; i < resultImage.width * resultImage.height; i++) {
-            let val = resultImage.data[i];
-            if (isFloat && val <= 1.0) val = Math.round(val * 255);
-            maskData.data[i * 4 + 3] = val; // Alpha
-        }
-        
-        ctx.globalCompositeOperation = 'destination-in';
-        const maskCanvas = document.createElement('canvas');
-        maskCanvas.width = canvas.width;
-        maskCanvas.height = canvas.height;
-        maskCanvas.getContext('2d').putImageData(maskData, 0, 0);
-        ctx.drawImage(maskCanvas, 0, 0);
-    }
+    ctx.globalCompositeOperation = 'destination-in';
+    ctx.drawImage(maskCanvas, 0, 0, tWidth, tHeight, 0, 0, canvas.width, canvas.height);
     
     return new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
 }
