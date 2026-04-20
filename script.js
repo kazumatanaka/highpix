@@ -131,66 +131,52 @@ async function executeBackgroundRemoval(file) {
     // Process image with modnet model
     const output = await segmenter(image);
     
-    let mask = null;
-    if (output && output.data && output.width && output.height) { mask = output; }
-    else if (output.output && output.output.data) { mask = output.output; }
-    else if (output.mask && output.mask.data) { mask = output.mask; }
-    else if (Array.isArray(output) && output[0] && output[0].data) { mask = output[0]; }
-    else if (Array.isArray(output) && output[0].mask && output[0].mask.data) { mask = output[0].mask; }
-    else if (Array.isArray(output) && output[0].output && output[0].output.data) { mask = output[0].output; }
-    
-    if (!mask) {
-        throw new Error("Unable to extract mask from AI output");
+    let resultImage = Array.isArray(output) ? output[0] : output;
+    if (resultImage && resultImage.mask) {
+        resultImage = resultImage.mask;
     }
     
-    // Load original image to canvas
-    const img = new Image();
-    img.src = url;
-    await new Promise(r => img.onload = r);
+    if (!resultImage || !resultImage.data) {
+        throw new Error("Unable to extract output from AI model");
+    }
     
     const canvas = document.createElement('canvas');
-    canvas.width = img.width;
-    canvas.height = img.height;
+    canvas.width = resultImage.width;
+    canvas.height = resultImage.height;
     const ctx = canvas.getContext('2d');
     
-    ctx.drawImage(img, 0, 0);
-    ctx.globalCompositeOperation = 'destination-in';
+    const channels = resultImage.channels ? resultImage.channels : (resultImage.data.length / (resultImage.width * resultImage.height));
     
-    // Convert mask Array into Canvas ImageData
-    const maskCanvas = document.createElement('canvas');
-    maskCanvas.width = mask.width;
-    maskCanvas.height = mask.height;
-    const maskCtx = maskCanvas.getContext('2d');
-    const imageData = maskCtx.createImageData(mask.width, mask.height);
-    
-    const isFloat = mask.data instanceof Float32Array;
-    const numPixels = mask.width * mask.height;
-    
-    // Some pipelines return RGBA or Grayscale. Dynamically detect channels.
-    const channels = mask.channels ? mask.channels : (mask.data.length / numPixels);
-    
-    for (let i = 0; i < numPixels; i++) {
-        let val;
-        if (channels === 1) {
-            val = mask.data[i];
-        } else if (channels === 4) {
-            val = mask.data[i * 4 + 3]; // use alpha channel
-        } else {
-            val = mask.data[i * channels]; // fallback to first channel
+    if (channels === 4) {
+        // Native background-removal output is already a fully transparent RGBA cutout.
+        const imageData = new ImageData(
+            new Uint8ClampedArray(resultImage.data),
+            resultImage.width,
+            resultImage.height
+        );
+        ctx.putImageData(imageData, 0, 0);
+    } else {
+        // Fallback for 1-channel mask output
+        const img = new Image();
+        img.src = url;
+        await new Promise(r => img.onload = r);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        
+        const maskData = new ImageData(canvas.width, canvas.height);
+        const isFloat = resultImage.data instanceof Float32Array;
+        for (let i = 0; i < resultImage.width * resultImage.height; i++) {
+            let val = resultImage.data[i];
+            if (isFloat && val <= 1.0) val = Math.round(val * 255);
+            maskData.data[i * 4 + 3] = val; // Alpha
         }
         
-        if (isFloat) val = Math.round(val * 255);
-        
-        const offset = i * 4;
-        imageData.data[offset] = 0;     // R
-        imageData.data[offset + 1] = 0; // G
-        imageData.data[offset + 2] = 0; // B
-        imageData.data[offset + 3] = val; // A
+        ctx.globalCompositeOperation = 'destination-in';
+        const maskCanvas = document.createElement('canvas');
+        maskCanvas.width = canvas.width;
+        maskCanvas.height = canvas.height;
+        maskCanvas.getContext('2d').putImageData(maskData, 0, 0);
+        ctx.drawImage(maskCanvas, 0, 0);
     }
-    maskCtx.putImageData(imageData, 0, 0);
-    
-    // Draw mask over original image
-    ctx.drawImage(maskCanvas, 0, 0, mask.width, mask.height, 0, 0, canvas.width, canvas.height);
     
     return new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
 }
